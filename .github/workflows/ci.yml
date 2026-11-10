@@ -614,3 +614,29 @@ jobs:
           key: pip-codespell-2.4.1
       - run: pip install --user codespell[toml]==2.4.1
       - run: codespell --ignore-words-list=ans,atmost,crate,inout,ratatui,ser,stayin,swarmin,worl,keep-alives --skip=CHANGELOG.md
+
+  dependency-validation:
+    name: Dependency validation
+    if: always() && github.event_name == 'pull_request'
+    needs: ["pick-runner", "tests", "min-crates", "cross_build", "android", "cross_test", "wasm_test", "check_semver", "check_external_types", "check_fmt", "check_docs", "clippy_check", "check_optional_deps", "msrv", "cargo_deny", "netsim-integration-tests", "codespell"]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - run: python3 scripts/test_dependabot_policy.py
+      - name: Require every applicable CI job
+        env:
+          CI_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          node <<'NODE'
+          const jobs = Object.entries(JSON.parse(process.env.CI_RESULTS));
+          if (!jobs.some(([, job]) => job.result === 'success')) {
+            throw new Error('No CI validation job succeeded');
+          }
+          for (const [name, job] of jobs) {
+            if (!['success', 'skipped'].includes(job.result)) {
+              throw new Error(`CI job ${name} did not pass: ${job.result}`);
+            }
+          }
+          NODE
